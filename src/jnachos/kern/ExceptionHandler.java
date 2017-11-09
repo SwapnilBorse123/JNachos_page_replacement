@@ -39,6 +39,10 @@ public abstract class ExceptionHandler {
 			SystemCallHandler.handleSystemCall(type);
 			break;
 		case PageFaultException:
+
+			/**
+			* @author Swapnil Borse
+			*/
 			JNachos.pageFaultCounter += 1;
 			
 			int vpn = Machine.readRegister(Machine.BadVAddrReg)/Machine.PageSize;
