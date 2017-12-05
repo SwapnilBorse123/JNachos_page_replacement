@@ -94,13 +94,13 @@ public class Directory {
 	 */
 
 	public Directory(int pSize) {
-		// Create teh table array
+		// Create the table array
 		mTable = new DirectoryEntry[pSize];
 
 		// Save the table size
 		mTableSize = pSize;
 
-		// Create the directory taable
+		// Create the directory table
 		for (int i = 0; i < mTableSize; i++) {
 			mTable[i] = new DirectoryEntry();
 			mTable[i].mInUse = false;

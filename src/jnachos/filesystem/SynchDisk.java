@@ -94,6 +94,13 @@ public class SynchDisk implements VoidFunctionPtr {
 		mSemaphore.P(); // wait for interrupt
 		mLock.release();
 	}
+	public void writeFragment(int fragmentNumber, byte[] data) {
+		mLock.acquire(); // only one disk I/O at a time
+		mDisk.writeFragmentRequest(fragmentNumber, data);
+		mSemaphore.P(); // wait for interrupt
+		mLock.release();
+	}
+
 
 	/**
 	 * Disk interrupt handler. Wake up any thread waiting for the disk request

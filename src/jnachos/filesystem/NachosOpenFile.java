@@ -19,7 +19,7 @@ public class NachosOpenFile implements OpenFile {
 
 	/** The header for the file. */
 	private FileHeader mHdr;
-
+	
 	/** The position within the file. */
 	private int mSeekPosition;
 
@@ -159,7 +159,20 @@ public class NachosOpenFile implements OpenFile {
 
 		return numBytes;
 	}
+	
 
+	public boolean writeToSector(int sectorNum, byte[] buffer) {
+		int sectorStartIndex = sectorNum * Disk.SectorSize;
+		int bufferStartIndex = 0;
+		try {
+			//System.arraycopy(buffer, bufferStartIndex, dest, sectorStartIndex, Disk.SectorSize);
+		}catch(Exception e) {
+			System.out.println("error writing to sector!");
+			return false;
+		}
+		return false;
+	}
+	
 	public int writeAt(byte[] from, int numBytes, int position) {
 		int fileLength = mHdr.fileLength();
 		int i, firstSector, lastSector, numSectors;
@@ -230,6 +243,90 @@ public class NachosOpenFile implements OpenFile {
 		return numBytes;
 	}
 
+	public int writeAtFragment(byte[] from, int numBytes, int position) {
+		int fileLength = mHdr.fileLength();
+		int i, firstFragment, lastFragment, numFragments;
+		boolean firstAligned, lastAligned;
+		byte[][] buf;
+
+		if ((numBytes <= 0) || (position >= fileLength)) {
+			return 0; // check request
+		}
+
+		if ((position + numBytes) > fileLength) {
+			numBytes = fileLength - position;
+		}
+
+		Debug.print('f', "Writing " + numBytes + " bytes at " + position + ", from file of length " + fileLength);
+
+		// ceil
+		firstFragment = (int) Math.floor(((double) position) / Disk.FragmentSize);
+		lastFragment = (int) Math.floor(((double) position + numBytes - 1) / Disk.FragmentSize);
+
+		numFragments = 1 + lastFragment - firstFragment;
+
+		buf = new byte[numFragments][Disk.FragmentSize];
+
+		firstAligned = (position == (firstFragment * Disk.FragmentSize));
+		lastAligned = ((position + numBytes) == ((lastFragment + 1) * Disk.FragmentSize));
+
+		int firstSkip = position - (firstFragment * Disk.FragmentSize);
+		int lastSkip = ((lastFragment + 1) * Disk.FragmentSize) - (position + numBytes);
+
+		// read in first and last sector, if they are to be partially modified
+		if (!firstAligned) {
+			readAt(buf[0], Disk.FragmentSize, firstFragment * Disk.FragmentSize);
+		}
+		if (!lastAligned && ((firstFragment != lastFragment) || firstAligned)) {
+			readAt(buf[(lastFragment - firstFragment)], Disk.FragmentSize, lastFragment * Disk.FragmentSize);
+		}
+
+		// copy in the bytes we want to change
+		// bcopy(from, &buf[position - (firstSector * SectorSize)], numBytes);
+		// System.arraycopy(from,0,buf,position - (firstSector *
+		// Disk.SectorSize), numBytes);
+		// ? Need quick array copy
+
+		// System.out.println("FS: " + firstSkip);
+		int offset = 0;
+		// write modified sectors back
+		for (i = firstFragment; i <= lastFragment; i++) {
+
+			if (i == firstFragment) {
+				int bytes = (i + 1) * Disk.FragmentSize - position;
+
+				System.arraycopy(from, offset, buf[0], position - firstFragment * Disk.FragmentSize,
+						Math.min(bytes, numBytes));
+				offset += bytes;
+			} else if (i == lastFragment) {
+				// System.out.println("LS: " + lastSkip + "loc :" + position);
+				System.arraycopy(from, offset, buf[lastFragment - firstFragment], 0,
+						position + numBytes - lastFragment * Disk.FragmentSize);
+			} else {
+				System.arraycopy(from, offset, buf[i - firstFragment], 0, Disk.FragmentSize);
+				offset += Disk.FragmentSize;
+			}
+
+			//JNachos.mSynchDisk.writeSector(mHdr.byteToSector(i * Disk.SectorSize), buf[(i - firstFragment)]);//
+		}
+		
+		for(int j = firstFragment; j <= lastFragment; j++){
+			if(mHdr.byteToFragment(j) % 2 == 0 && mHdr.byteToFragment(j+1) == mHdr.byteToFragment(j)+1){
+				byte[] sectBuf = new byte[Disk.SectorSize];
+				System.arraycopy(buf[j-firstFragment], 0,sectBuf, 0, Disk.FragmentSize);
+				System.arraycopy(buf[(j+1)-firstFragment], 0, sectBuf, Disk.FragmentSize, Disk.FragmentSize);
+				JNachos.mSynchDisk.writeSector(mHdr.byteToFragment(j), buf[(j - firstFragment)]);
+				j++;
+			}
+			else{
+				JNachos.mSynchDisk.writeFragment(mHdr.byteToFragment(j), buf[(j - firstFragment)]);
+			}
+		}
+		
+		//JNachos.mSynchDisk.writeSector(mHdr.byteToSector(i * Disk.SectorSize), buf[(i - firstFragment)]);//
+		return numBytes;
+	}
+	
 	/**
 	 * Closes the file
 	 */
@@ -244,4 +341,75 @@ public class NachosOpenFile implements OpenFile {
 		return mHdr.fileLength();
 	}
 
+	/**
+	 * Writes the content to the file sectors
+	 * */
+	public void customWrite(byte[] inputBytesArr, String fileName) {
+		int headerSec = getHeaderSecNum(fileName);
+		
+		byte[] buffer = new byte[Disk.SectorSize]; // temporary buffer used to write sector
+		byte[] diskSector = new byte[Disk.SectorSize]; // read sector from physical disk
+		
+		byte[] firstHalfSec = new byte[Disk.FragmentSize]; // first half of temporary buffer
+		byte[] secondHalfSec = new byte[Disk.FragmentSize]; // second half of temporary buffer
+		
+		int contentLen = inputBytesArr.length;
+		int fileLen = mHdr.fileLength();
+		int[] dataFrags = mHdr.mDataFragments;
+		int dataFragsIndex = 0;
+		int lastFragIndex = mHdr.lastFragment;
+		int lastFragPos = mHdr.lastFragmentPosition;
+		int remSpaceLastFrag = Disk.FragmentSize - lastFragPos;
+		
+		int srcPos = 0;
+		int destPos = 0;
+		int currFrag = dataFrags[dataFragsIndex];
+		// reading the current sector from the disk getSecFromFrag(lastFrag)
+		JNachos.mSynchDisk.readSector(getSecFromFrag(currFrag), diskSector);
+		
+		// ALREADY EXISTING DATA(1) + NEW DATA(2) + ALREADY EXISITING DATA(3)  = FULL SECTOR (write this sector)
+		// get the data already in this sector in the temporary buffer ---> (1)
+		if(lastFragIndex % 2 == 0) { // current fragment is first half of sector
+			System.arraycopy(diskSector, 0, buffer, 0, lastFragPos);
+		}else { // current fragment is second half of sector
+			System.arraycopy(diskSector, 0, buffer, 0, Disk.FragmentSize + lastFragPos);
+		}
+		
+		while(contentLen > 0) {
+			/** check for all the possible conditions */
+			if(contentLen <= remSpaceLastFrag) { // new content can fit in current fragment
+				System.arraycopy(inputBytesArr, 0, buffer, lastFragPos, contentLen); // copy the new data ---> (2)
+				lastFragPos = lastFragPos + contentLen;
+				System.arraycopy(diskSector, lastFragPos, buffer, lastFragPos, Disk.SectorSize - lastFragPos); // copy existing data --->(3)
+				if(lastFragPos == Disk.FragmentSize) { // now this fragment is full
+					mHdr.lastFragmentPosition = 0; // set position to beginning
+					mHdr.lastFragment = ++dataFragsIndex;
+				}else {
+					mHdr.lastFragmentPosition = lastFragPos;
+					mHdr.lastFragment = lastFragIndex;
+				}
+				contentLen = 0;
+				JNachos.mSynchDisk.writeSector(currFrag/2, buffer);
+			}
+		}
+		mHdr.writeBack(headerSec); // write the updated header to disk
+	}
+
+	public int getHeaderSecNum(String fileName) {
+		Directory directory = new Directory(NachosFileSystem.NumDirEntries);
+		NachosOpenFile openFile = null;
+		directory.fetchFrom(NachosFileSystem.mDirectoryFile);
+		int headerSec = directory.find(fileName);
+		return headerSec;
+	}
+	
+	
+	public int getSecFromFrag(int fragmentNum) {
+		if(fragmentNum % 2 == 0) {
+			return fragmentNum/2;
+		}else {
+			return (fragmentNum - 1)/2;
+		}
+	}
+	
 }

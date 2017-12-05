@@ -26,6 +26,7 @@ import jnachos.kern.*;
  * disk.
  */
 public class FileHeader {
+	
 	/** The number of direct pointers */
 	public static final int NumDirect = ((Disk.SectorSize - 2 * 4) / 4);
 
@@ -37,15 +38,30 @@ public class FileHeader {
 
 	/** Number of data sectors in the file. */
 	private int mNumSectors;
+	
+	/** Number of data fragments in the file. */
+	private int mNumFragments;
 
 	/** Disk sector numbers for each data block in the file. */
-	private int[] mDataSectors;
-
+	public int[] mDataSectors;
+	
+	/** Disk fragment numbers for each data fragment in the file. */
+	public int[] mDataFragments;
+	
+	/** Last fragment in use */
+	public int lastFragment;
+	
+	/** Last used fragment's position */
+	public int lastFragmentPosition;
+	
 	/**
 	 * Default constructor.
 	 */
 	public FileHeader() {
 		mDataSectors = new int[NumDirect];
+		mDataFragments = new int[NumDirect*2];
+		lastFragment = mDataFragments[0];
+		lastFragmentPosition = 0;
 	}
 
 	/**
@@ -54,7 +70,35 @@ public class FileHeader {
 	public void delete() {
 
 	}
+	/**
+	 * Initialize a fresh file header for a newly created file. Allocate data
+	 * blocks for the file out of the map of free disk blocks.
+	 * 
+	 *
+	 * @param pFreeFragmentMap
+	 *            the bit map of free disk sectors.
+	 * @param pFileSize
+	 *            the bit map of free disk sectors.
+	 * @return true if successful, false if there are not enough free blocks to
+	 *         accomodate the new file.
+	 */
+	public boolean allocateFragment(BitMap pFreeFragmentMap, int pFileSize) {
+		mNumBytes = pFileSize;
+	//	mNumSectors = (int) Math.ceil((double) pFileSize / (double) Disk.SectorSize);
+		mNumFragments = (int) Math.ceil((double) pFileSize / (double) Disk.FragmentSize);
 
+		// not enough space
+		if (pFreeFragmentMap.numClear() < mNumFragments) {
+			return false;
+		}
+		// Find enough sectors
+		for (int i = 0; i < mNumFragments; i++) {
+			mDataFragments[i] = pFreeFragmentMap.find();
+		}
+		return true;
+	}
+
+	
 	/**
 	 * Initialize a fresh file header for a newly created file. Allocate data
 	 * blocks for the file out of the map of free disk blocks.
@@ -67,21 +111,26 @@ public class FileHeader {
 	 * @return true if successful, false if there are not enough free blocks to
 	 *         accomodate the new file.
 	 */
-	public boolean allocate(BitMap pFreeMap, int pFileSize) {
+	/*public boolean allocate(BitMap pFreeMap, int pFileSize) {
 		mNumBytes = pFileSize;
 		mNumSectors = (int) Math.ceil((double) pFileSize / (double) Disk.SectorSize);
+		//mNumFragments = (int) Math.ceil((double) pFileSize / (double) Disk.FragmentSize);
 
 		// not enough space
 		if (pFreeMap.numClear() < mNumSectors) {
 			return false;
 		}
-
+		// not enough space
+		if (pFreeMap.numClear() < mNumSectors) {
+			return false;
+		}
 		// Find enough sectors
 		for (int i = 0; i < mNumSectors; i++) {
 			mDataSectors[i] = pFreeMap.find();
+			int currentSector = mDataSectors[i]; 
 		}
 		return true;
-	}
+	}*/
 
 	/**
 	 * De-allocate all the space allocated for data blocks for this file.
@@ -112,11 +161,19 @@ public class FileHeader {
 
 		mNumBytes = JavaSys.bytesToInt(buffer, 0);
 		mNumSectors = JavaSys.bytesToInt(buffer, 4);
-
+		mNumFragments = mNumSectors * NachosFileSystem.FRAGMENTNUM;
+		
 		for (int i = 0; i < mNumSectors; i++) {
 			mDataSectors[i] = JavaSys.bytesToInt(buffer, 8 + i * 4);
 		}
-
+		
+		//int fragIndex = 0;
+		for (int i = 0; i < mNumSectors; ++i) {
+			mDataFragments[2 * i] = mDataSectors[i] * 2;
+			//fragIndex++;
+			mDataFragments[(2 * i) + 1] = (mDataSectors[i] * 2) + 1;
+			//fragIndex++;
+		}
 	}
 
 	/**
@@ -130,10 +187,10 @@ public class FileHeader {
 		byte[] buffer = new byte[Disk.SectorSize];
 
 		JavaSys.intToBytes(mNumBytes, buffer, 0);
-		JavaSys.intToBytes(mNumSectors, buffer, 4);
+		JavaSys.intToBytes(mNumFragments, buffer, 4);
 
-		for (int i = 0; i < mNumSectors; i++) {
-			JavaSys.intToBytes(mDataSectors[i], buffer, 8 + i * 4);
+		for (int i = 0; i < mNumFragments; i++) {
+			JavaSys.intToBytes(mDataFragments[i], buffer, 8 + i * 4);
 		}
 
 		JNachos.mSynchDisk.writeSector(sector, buffer);
@@ -151,6 +208,10 @@ public class FileHeader {
 	 */
 	public int byteToSector(int offset) {
 		return (mDataSectors[offset / Disk.SectorSize]);
+	}
+	
+	public int byteToFragment(int offset) {
+		return (mDataFragments[offset]);
 	}
 
 	/**

@@ -14,8 +14,11 @@ import jnachos.kern.*;
  */
 public class Disk implements VoidFunctionPtr {
 	/** Number of bytes per disk sector. */
-	public static final int SectorSize = 128;
+	public static final int SectorSize = 256;//128;
 
+	/** Number of bytes per block fragment. */
+	public static final int FragmentSize = SectorSize / 2;
+	
 	/** Number of sectors per disk track. */
 	public static final int SectorsPerTrack = 32;
 
@@ -235,6 +238,40 @@ public class Disk implements VoidFunctionPtr {
 
 		mActive = true;
 		updateLast(sectorNumber);
+
+		Statistics.numDiskWrites++;
+		Interrupt.schedule(this, null, ticks, InterruptType.DiskInt);
+	}
+	/**
+	 * Simulate a request to write a single disk sector Do the write immediately
+	 * to the file Set up an interrupt handler to be called later, that will
+	 * notify the caller when the simulator says the operation has completed.
+	 *
+	 * Note that a disk only allows an entire sector to be written, not part of
+	 * a sector.
+	 *
+	 * @param sectorNumber
+	 *            the disk sector to write.
+	 * @param data
+	 *            the bytes to be written.
+	 */
+	public void writeFragmentRequest(int FragmentNumber, byte[] data) {
+		int ticks = computeLatency(FragmentNumber/2, true);
+
+		assert (!mActive);
+		assert ((FragmentNumber >= 0) && (FragmentNumber < NumSectors*2));
+
+		Debug.print('d', "Writing to sector " + FragmentNumber);
+		Debug.print('d', "Location: " + SectorSize/2 * FragmentNumber + MagicSize);
+		JavaSys.lseek(mFileno, FragmentSize * FragmentNumber + MagicSize);
+		JavaSys.writeFile(mFileno, data, SectorSize/2);
+
+		if (Debug.isEnabled('d')) {
+			printSector(true, FragmentNumber, data);
+		}
+
+		mActive = true;
+		updateLast(FragmentNumber/2);
 
 		Statistics.numDiskWrites++;
 		Interrupt.schedule(this, null, ticks, InterruptType.DiskInt);

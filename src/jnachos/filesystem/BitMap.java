@@ -165,5 +165,41 @@ public class BitMap {
 		}
 		return -1;
 	}
+	
+	/**
+	 * Function is used to find an unused bit.
+	 * 
+	 * @return The first index of an unused bit if there is one, -1 otherwise.
+	 */
+	public int findFirstFree() {
+		if(mNumClear == 0) {
+			return -1;
+		}
+		for(int i = 0; i < mNumBits; ++i) {
+			if(!mUsed[i]) {
+				return i;
+			}
+		}
+		return -1;
+	}
+	
+	/**
+	 * Function is used to find an unused bit.
+	 * 
+	 * @return The first index of an unused bit if there is one, -1 otherwise.
+	 */
+	public int findFirstFreeEvenSector() {
+		if(mNumClear == 0) {
+			return -1;
+		}
+		for(int i = 0; i < mNumBits; ++i) {
+			if(!mUsed[i] && i % 2 == 0 && !mUsed[i+1]) {
+				mark(i);
+				mark(i + 1);
+				return i;
+			}
+		}
+		return -1;
+	}
 
 }

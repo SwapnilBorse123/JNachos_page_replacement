@@ -173,18 +173,16 @@ public class Main {
 				argCount = 2;
 			}
 			// List Nachos directory
-			else if (args[argv].compareTo("-l") == 0) // list Nachos directory
-			{
+			else if (args[argv].compareTo("-l") == 0) {// list Nachos directory
 				JNachos.mFileSystem.list();
 			}
 			// Print the nachos file system
-			else if (args[argv].compareTo("-D") == 0) // print entire filesystem
-			{
+			else if (args[argv].compareTo("-D") == 0) { // print entire filesystem
+			
 				JNachos.mFileSystem.print();
 			}
 			// Run the performance test
-			else if (args[argv].compareTo("-t") == 0) // performance test
-			{
+			else if (args[argv].compareTo("-t") == 0) {// performance test
 				// PerformanceTest();
 			}
 
@@ -199,12 +197,33 @@ public class Main {
 
 		}
 
+		NachosFileSystem nfs = new NachosFileSystem(true);
+		boolean isFileCreated = nfs.create("sampleFile", 300);
+		boolean isFileCreated1 = nfs.create("sampleFile1", 400);
+		//NachosOpenFile nOpenFile = nfs.open("sampleFile");
+		NachosOpenFile nOpenFile1 = nfs.open("sampleFile1");
+		String inputString = "Hello, my name is Swapnil Borse. I love to code!"; // Str 1
+		byte[] inputBytesArr = inputString.getBytes();
+		nOpenFile1.customWrite(inputBytesArr, "sampleFile1");
+		// print statistics
+		inputString = "Ankita D'Souza"; // Str 2
+		inputBytesArr = inputString.getBytes();
+		nOpenFile1.customWrite(inputBytesArr, "sampleFile1");
+		// print statistics
+		inputString = "Swapnil"; // Str 3 
+		inputBytesArr = inputString.getBytes();
+		nOpenFile1.customWrite(inputBytesArr, "sampleFile1");
+		// print statistics
+		
+		//System.out.println("Length of file: " + nOpenFile.length());
+		System.out.println("Length of file: " + nOpenFile1.length());
+		
 		// NOTE: if the procedure "main"
 		// returns, then the program "nachos"
 		// will exit (as any other normal program
 		// would). But there may be other
-		// Processs on the ready list. We switch
-		// to those Processs by saying that the
+		// Processes on the ready list. We switch
+		// to those Processes by saying that the
 		// "main" Process is finished, preventing
 		// it from returning.
 		JNachos.getCurrentProcess().finish();

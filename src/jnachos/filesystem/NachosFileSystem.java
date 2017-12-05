@@ -42,24 +42,33 @@ import jnachos.kern.*;
  */
 public class NachosFileSystem implements FileSystem {
 
+	public static final int FRAGMENTNUM = 2;
 	// Sectors containing the file headers for the bitmap of free sectors,
 	// and the directory of files. These file headers are placed in well-known
 	// sectors, so that they can be located on boot-up.
+	
 	/** The sector where the bitmap is stored. */
-	public static final int FreeMapSector = 0;
+	//public static final int FreeMapSector = 0;
+	
 	/** The sector where the top level sector is stored. */
 	public static final int DirectorySector = 1;
+	
+	/** The sector where the top level fragment information is stored. */
+	public static final int FragmentSector = 0;
 
 	// Initial file sizes for the bitmap and directory; until the file system
 	// supports extensible files, the directory size sets the maximum number
 	// of files that can be loaded onto the disk.
 	public static final int FreeMapFileSize = (Disk.NumSectors);
+	public static final int FreeFragmentMapFileSize = (Disk.NumSectors * FRAGMENTNUM);
 	public static final int NumDirEntries = 10;
 	public static final int DirectoryFileSize = (Directory.sizeOfDirectoryEntry() * NumDirEntries) + 4;
 
-	private NachosOpenFile mDirectoryFile;
-	private NachosOpenFile mFreeMapFile;
-
+	public static Fragment[] diskFragmentsArr;
+	
+	public static NachosOpenFile mDirectoryFile;
+	public static NachosOpenFile mFreeMapFile;
+	public static NachosOpenFile mFreeFragmentMapFile;
 	/**
 	 * Initialize the file system. If format = true, the disk has nothing on it,
 	 * and we need to initialize the disk to contain an empty directory, and a
@@ -77,44 +86,69 @@ public class NachosFileSystem implements FileSystem {
 		Debug.print('f', "Initializing the file system.");
 
 		if (pFormat) {
-			BitMap freeMap = new BitMap(Disk.NumSectors);
+			//BitMap freeMap = new BitMap(Disk.NumSectors);
+			
+			BitMap freeFragmentMap = new BitMap(Disk.NumSectors * FRAGMENTNUM); // assuming a sector is divided into two fragments
+	
 			Directory directory = new Directory(NumDirEntries);
-			FileHeader mapHdr = new FileHeader();
+			
+			
+			//FileHeader mapHdr = new FileHeader();
 			FileHeader dirHdr = new FileHeader();
-
+			FileHeader fragHdr = new FileHeader();
 			Debug.print('f', "Formatting the file system.");
 
 			// First, allocate space for FileHeaders for the directory and
-			// bitmap
+			// bitmaps
 			// (make sure no one else grabs these!)
-			freeMap.mark(FreeMapSector);
-			freeMap.mark(DirectorySector);
-
+			//freeMap.mark(FreeMapSector);
+			//freeFragmentMap.mark(FreeMapSector * 2);
+			//freeFragmentMap.mark((FreeMapSector * 2) + 1);
+			
+			//freeMap.mark(DirectorySector);
+			freeFragmentMap.mark(DirectorySector * 2);
+			freeFragmentMap.mark((DirectorySector * 2) + 1);
+			
+			
+			//freeMap.mark(FragmentSector);
+			freeFragmentMap.mark(FragmentSector * 2);
+			freeFragmentMap.mark((FragmentSector * 2) + 1);
+			
 			// Second, allocate space for the data blocks containing the
 			// contents
 			// of the directory and bitmap files. There better be enough space!
-			if (!mapHdr.allocate(freeMap, FreeMapFileSize)) {
+			
+			/*if (!dirHdr.allocate(freeMap, DirectoryFileSize)) {
+				assert (false);
+			}*/
+			if (!fragHdr.allocateFragment(freeFragmentMap, FreeFragmentMapFileSize)) {
 				assert (false);
 			}
-			if (!dirHdr.allocate(freeMap, DirectoryFileSize)) {
+			if (!dirHdr.allocateFragment(freeFragmentMap, DirectoryFileSize)) {
 				assert (false);
 			}
-
+			/*if(!fragHdr.allocate(freeMap, FreeFragmentMapFileSize)) {
+				assert(false);
+			}*/
 			// Flush the bitmap and directory FileHeaders back to disk
 			// We need to do this before we can "Open" the file, since open
 			// reads the file header off of disk (and currently the disk has
 			// garbage
 			// on it!).
 			Debug.print('f', "Writing headers back to disk.");
-			mapHdr.writeBack(FreeMapSector);
+			//mapHdr.writeBack(FreeMapSector);
+			fragHdr.writeBack(FragmentSector);
 			dirHdr.writeBack(DirectorySector);
-
+			
+			
 			// OK to open the bitmap and directory files now
 			// The file system operations assume these two files are left open
 			// while Nachos is running.
-			mFreeMapFile = new NachosOpenFile(FreeMapSector);
+			//mFreeMapFile = new NachosOpenFile(FragmentSector);
 			mDirectoryFile = new NachosOpenFile(DirectorySector);
-
+			mFreeFragmentMapFile = new NachosOpenFile(FragmentSector);
+			
+			
 			// Once we have the files "open", we can write the initial version
 			// of each file back to disk. The directory at this point is
 			// completely
@@ -122,15 +156,16 @@ public class NachosFileSystem implements FileSystem {
 			// sectors on the disk have been allocated for the file headers and
 			// to hold the file data for the directory and bitmap.
 			Debug.print('f', "Writing bitmap and directory back to disk.\n");
-			freeMap.writeBack(mFreeMapFile); // flush changes to disk
+			//freeMap.writeBack(mFreeMapFile); // flush changes to disk
 			directory.writeBack(mDirectoryFile);
-
+			freeFragmentMap.writeBack(mFreeFragmentMapFile);
+			
 			if (Debug.isEnabled('f')) {
-				freeMap.print();
+				//freeMap.print();
 				directory.print();
-				freeMap.delete();
+				//freeMap.delete();
 				directory.delete();
-				mapHdr.delete();
+				//mapHdr.delete();
 				dirHdr.delete();
 			}
 		} else {
@@ -138,8 +173,9 @@ public class NachosFileSystem implements FileSystem {
 			// representing
 			// the bitmap and directory; these are left open while Nachos is
 			// running
-			mFreeMapFile = new NachosOpenFile(FreeMapSector);
+			//mFreeMapFile = new NachosOpenFile(FreeMapSector);
 			mDirectoryFile = new NachosOpenFile(DirectorySector);
+			mFreeFragmentMapFile =  new NachosOpenFile(FragmentSector);
 		}
 	}
 
@@ -171,8 +207,9 @@ public class NachosFileSystem implements FileSystem {
 	public boolean create(String pName, int pInitialSize) {
 		Directory directory;
 		BitMap freeMap;
+		BitMap freeFragmentMap;
 		FileHeader hdr;
-		int sector;
+		int fragmentNum = 1;
 		boolean success;
 
 		Debug.print('f', "Creating file " + pName + ", size: " + pInitialSize);
@@ -184,31 +221,37 @@ public class NachosFileSystem implements FileSystem {
 			// file is already in directory
 			success = false;
 		} else {
-			freeMap = new BitMap(Disk.NumSectors);
-			freeMap.fetchFrom(mFreeMapFile);
-
+			//freeMap = new BitMap(Disk.NumSectors);
+			//freeMap.fetchFrom(mFreeMapFile);
+			freeFragmentMap = new BitMap(Disk.NumSectors * NachosFileSystem.FRAGMENTNUM);
+			freeFragmentMap.fetchFrom(mFreeFragmentMapFile);
+			
 			// find a sector to hold the file header
-			sector = freeMap.find();
-
-			if (sector == -1) {
+			//sector = freeMap.find();
+			fragmentNum = freeFragmentMap.findFirstFreeEvenSector();
+			
+			
+			if (fragmentNum == -1) {
 				success = false; // no free block for file header
-			} else if (!directory.add(pName, sector)) {
+			} else if (!directory.add(pName, fragmentNum/2)) {
 				success = false; // no space in directory
 			} else {
 				hdr = new FileHeader();
-				if (!hdr.allocate(freeMap, pInitialSize)) {
+				//if (!hdr.allocate(freeMap, pInitialSize)) {
+				if (!hdr.allocateFragment(freeFragmentMap, pInitialSize)) {
 					success = false; // no space on disk for data
 				} else {
 					success = true;
-					// everthing worked, flush all changes back to disk
-					hdr.writeBack(sector);
+					// everything worked, flush all changes back to disk
+					hdr.writeBack(fragmentNum/2);
 					directory.writeBack(mDirectoryFile);
-					freeMap.writeBack(mFreeMapFile);
-					Debug.print('f', "File created succesffully " + sector + "\t" + mDirectoryFile);
+					//freeMap.writeBack(mFreeMapFile);
+					freeFragmentMap.writeBack(mFreeFragmentMapFile);
+					Debug.print('f', "File created succesffully " + fragmentNum + "\t" + mDirectoryFile);
 				}
 				hdr.delete();
 			}
-			freeMap.delete();
+			freeFragmentMap.delete();
 		}
 		directory.delete();
 		return success;
@@ -310,7 +353,7 @@ public class NachosFileSystem implements FileSystem {
 
 		System.out.println("Bit map file header:\n");
 
-		bitHdr.fetchFrom(FreeMapSector);
+		bitHdr.fetchFrom(FragmentSector);
 		bitHdr.print();
 
 		System.out.println("Directory file header:\n");
